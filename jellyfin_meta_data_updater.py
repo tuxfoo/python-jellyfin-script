@@ -1,11 +1,21 @@
 #!/bin/python3.10
 
-# Version 0.4
+# Version 0.5
+
 # A script to update the metadata of a jellyfin server
 # The intention is to fix the issues with the musicbrainz plugin such as:
 #   - Missing musicbrainz track ids
 #   - Issues with multi disc albums that do not have a disc number
 #   - Issues with multi disc albums that have been split into multiple albums (In this case the script will merge the albums back into one album)
+#            - Merge is not implemented yet, this option will still update all the tracks of the split ablums with the correct musicbrainz track ids
+#            - The albums are split because the track files do not contain the disc number.
+#            - Originasing into ARTISTNAME/ALBUMNAME/DISCNUMBER/TRACKNUMBER TRACKNAME.EXTENSION used to work but does not work anymore
+#            - I tried changing the parent id of the tracks to the album id of the first disc but jellyfin just changes it back.
+#            - There is a "Folder" item type which parent id can be set to the album id (this is how jellyfin works when the disc number is set in the track files)
+#            - I have not found a way create a "Folder" item type using the jellyfin api
+#
+#
+#
 #   - Shuffle a whole playlist and create a new playlist from it (Jellyfin only shuffles 299 tracks at a time and cannot create a playlist from the shuffled tracks)
 
 # This script is mostly for those who do not want to make any changes to the media files themselves
@@ -21,7 +31,7 @@ from random import shuffle
 
 # Settings, You will need to change these to match your setup
 jellyfin_server = "https://jellyfin.example.org"
-jellyfin_api_key = "your jellyfin api key"
+jellyfin_api_key = "your api key"
 
 
 
@@ -41,7 +51,7 @@ musicbrainz_server = "https://musicbrainz.org/ws/2"
 
 # Make sure the script is run with the correct arguments
 if len(sys.argv) < 2:
-    print("Usage: jellyfin_meta_data_updater.py [<musicbrainz_album_id> | all] [--dry-run] [--use-musicbrainz-metadata] [--verify-off] [--skip-existing] [--merge <album_id>] [--sort-alpha] [--help] [shuffle=<new_playlist_name>]")
+    print("Usage: jellyfin_meta_data_updater.py [<musicbrainz_album_id> | all] [--dry-run] [--use-musicbrainz-metadata] [--verify-off] [--skip-existing] [--merge <album_id>] [--sort-alpha] [--help] [shuffle=<new_playlist_name> [start=<start_track_number>]]")
     sys.exit(1)
 
 # The first argument is the jellyfin album id
@@ -58,11 +68,12 @@ skip_existing = False
 merge=None
 
 new_playlist_name=None
-
+# The track number to start the shuffle from, this is useful if you want to shuffle a playlist but start from a specific track number so that you can continue from where you left off
+start=None
 sort_alpha=False
 # Process optional arguments that can be in any order
 try:
-    opts, args = getopt.getopt(sys.argv[2:], "dbvsm:a", ["dry-run", "use-musicbrainz-metadata", "verify-off", "skip-existing", "merge=", "sort-alpha", "help", "shuffle="])
+    opts, args = getopt.getopt(sys.argv[2:], "dbvsm:a", ["dry-run", "use-musicbrainz-metadata", "verify-off", "skip-existing", "merge=", "sort-alpha", "help", "shuffle=", "start="])
 except getopt.GetoptError as err:
     print(err)
     sys.exit(1)
@@ -90,16 +101,23 @@ for opt, arg in opts:
         if new_playlist_name == None:
             print("Error: You must specify a new playlist name")
             sys.exit(1)
+    elif opt == "--start":
+        start = arg
+        if start == None:
+            print("Error: You must specify a start track number")
+            sys.exit(1)
     else:
-        print("Usage: jellyfin_meta_data_updater.py [<musicbrainz_album_id> | all] [--dry-run] [--use-musicbrainz-metadata] [--verify-off] [--skip-existing] [--merge <album_id>]")
+        print("Usage: jellyfin_meta_data_updater.py [<musicbrainz_album_id> | all] [--dry-run] [--use-musicbrainz-metadata] [--verify-off] [--skip-existing] [--merge <album_id>] [--sort-alpha] [--help] [shuffle=<new_playlist_id>]")
         sys.exit(1)
 
 def help_doc():
-    print("Usage: jellyfin_meta_data_updater.py [<musicbrainz_album_id> | all] [--dry-run] [--use-musicbrainz-metadata] [--verify-off] [--skip-existing] [--merge <album_id>]")
+    print("Usage: jellyfin_meta_data_updater.py [<musicbrainz_album_id> | all] [--dry-run] [--use-musicbrainz-metadata] [--verify-off] [--skip-existing] [--merge <album_id>] [--sort-alpha] [--help] [shuffle=<new_playlist_name> [start=<start_track_id>]]")
     print("You can use all instead of a musicbrainz album id to process all albums, eg: jellyfin_meta_data_updater.py all")
     print("--skip-existing: Skip albums that already have musicbrainz track ids")
-    print("--sort-alpha: Sort the tracks by path (In case some weirdo has a multi disc album with the tracks labled 101 instead of 01 and in the same folder)")
+    print("--sort-alpha: Sort the tracks by path (In case some weirdo has a multi disc album with the tracks labled 101,201,etc instead of 01 and in the same folder)")
     print("If you encountered the bug where jellyfin splits a multi disc album into multiple albums then you can still add metabrain id to tracks with the --merge option to merge the albums back into one album, eg: jellyfin_meta_data_updater.py <musicbrainz_album_id 1st Album> --merge <album_id 2nd, album_id 3rd>")
+    print("If you want to shuffle a playlist and create a new playlist from it then use the shuffle option, eg: jellyfin_meta_data_updater.py <playlist_id_to_shuffle> shuffle=<new_playlist_name>")
+    print("If you want to shuffle a playlist and start from a specific track id(Use the dev inspector in browser) then use the start option, eg: jellyfin_meta_data_updater.py <playlist_id_to_shuffle> shuffle=<new_playlist_name> start=<start_track_id>")
     sys.exit(1)
 
 if jellyfin_album_id == "--help":
@@ -149,8 +167,17 @@ def shuffle_playlist(playlist_id):
     playlist_items=[]
     for item in playlist["Items"]:
         playlist_items.append(item["Id"])
-
-    shuffle(playlist_items)
+    
+    if start != None:
+        # Search for the start track id in the playlist and get the index number
+        track_ind=playlist_items.index(start)
+        # split the playlist into two lists and shuffle the second list
+        playlist_items_1=playlist_items[:int(track_ind)-1]
+        playlist_items_2=playlist_items[int(track_ind)-1:]
+        shuffle(playlist_items_2)
+        playlist_items=playlist_items_1+playlist_items_2
+    else:
+        shuffle(playlist_items)
     save_playlist(new_playlist_name, playlist_items)
     return
 
@@ -274,7 +301,51 @@ def get_musicbrainz_track_ids(musicbrainz_server, musicbrainz_album_id):
         sys.exit(1)
     return response.json()
 
-def jellyfin_musicbrain_trackid_update(jellyfin_server, track_data, musicbrainz_track, musicbrainz_track_data):
+def jellyfin_set_folder_parent(jellyfin_server, jellyfin_album_id, folder_id):
+    # Set the parent id for the folder to the album id
+    # Requires authentication
+    headers = {
+        "x-emby-authorization": f"MediaBrowser Client=\"jellyfin_meta_data_updater.py\", Device=\"jellyfin_meta_data_updater.py\", DeviceId=\"jellyfin_meta_data_updater.py\", Version=\"0.1\"",
+        "Content-Type": "application/json"
+    }
+    headers['x-mediabrowser-token'] = tokens[0]
+    data = {
+        "ParentId": jellyfin_album_id,
+        "LockData": True
+    }
+    
+    url = f"{jellyfin_server}/Items/{folder_id}"
+
+    response = "Null"
+    if not dry_run:
+        response = requests.post(url, headers=headers, json=data)
+        if response.status_code != 204:
+            print(f"URL: {url}")
+            print(f"Error: {response.status_code} {response.reason}")
+            sys.exit(1)
+
+    return response
+
+def jellyfin_get_album_folders(jellyfin_server, jellyfin_api_key, jellyfin_album_id):
+    # Get all the folders from the jellyfin server for the album
+    headers = {
+        "x-emby-token": jellyfin_api_key
+    }
+    url = f"{jellyfin_server}/Items?Ids={jellyfin_album_id}&fields=ParentId,MediaSources&includeItemTypes=Folder&SortBy=SortName"
+    print(f"URL: {url}")
+    response = requests.get(url, headers=headers)
+    if response.status_code != 200:
+        print(f"Error: {response.status_code} {response.reason}")
+        sys.exit(1)
+    
+    folder_ids = []
+    for folder in response.json()["Items"]:
+        if folder["Type"] == "Folder":
+            folder_ids.append(folder["Id"])
+    return folder_ids
+
+
+def jellyfin_musicbrain_trackid_update(jellyfin_server, track_data, musicbrainz_track, musicbrainz_track_data, parent_data=None):
     # Update the jellyfin server with the musicbrainz track id
     # Requires authentication
     headers = {
@@ -315,6 +386,9 @@ def jellyfin_musicbrain_trackid_update(jellyfin_server, track_data, musicbrainz_
         track_data["ProductionYear"] = ""
     if "Genres" not in track_data:
         track_data["Genres"] = []
+    if type(track_data["IndexNumber"]) != int:
+        if "-" in track_data["IndexNumber"]:
+            track_data["IndexNumber"] = track_data["IndexNumber"].split("-")[1]
     data = {
         "Id": track_data["Id"],
         "Name": track_data["Name"],
@@ -342,12 +416,13 @@ def jellyfin_musicbrain_trackid_update(jellyfin_server, track_data, musicbrainz_
     }
     if merge != None:
         # Attempt to merge the albums by changing the ParentId for each track
-        data['AlbumId'] = jellyfin_album_id
-        data['ParentId'] = jellyfin_album_id
-        data['AlbumPrimaryImageTag'] = track_data['AlbumPrimaryImageTag']
-        data['ImageBlurHashes'] = track_data['ImageBlurHashes']
+        data['AlbumId'] = parent_data['Id']
+        #data['ParentId'] = parent_data['ParentId']
+        #data['AlbumPrimaryImageTag'] = parent_data['AlbumPrimaryImageTag']
+        #data['ImageBlurHashes'] = parent_data['ImageBlurHashes']
         # Lock the album to prevent jellyfin automatically splitting the album again
         data['LockData'] = True
+        data['Album'] = parent_data['Album']
 
     print(f"Data: {json.dumps(data)}")
     url = f"{jellyfin_server}/Items/{track_data['Id']}"
@@ -385,6 +460,7 @@ def jellyfin_album_musicbrainz_trackid_update(jellyfin_server, album_tracks, mus
     jf_indx = 0
     AlbumPrimaryImageTag = None
     ImageBlurHashes = None
+
     for item in album_tracks:
         if item["Type"] != "Audio":
             continue
@@ -415,14 +491,21 @@ def jellyfin_album_musicbrainz_trackid_update(jellyfin_server, album_tracks, mus
         if m_indx >= len(musicbrainz_track_data):
             print("Musicbrainz track data index out of range, skipping")
             return
+        '''
         if m_indx == 0:
             AlbumPrimaryImageTag = item['AlbumPrimaryImageTag']
             ImageBlurHashes = item['ImageBlurHashes']
             item['AlbumPrimaryImageTag'] = AlbumPrimaryImageTag
             item['ImageBlurHashes'] = ImageBlurHashes
+        '''
         if not musicbrainz_track_data[m_indx]['tracks'][jf_indx-1]['recording']['video']:
             #print(json.dumps(musicbrainz_track_data[m_indx]['tracks'][item["IndexNumber"]-1]))
-            jellyfin_musicbrain_trackid_update(jellyfin_server, item, musicbrainz_track_data[m_indx]['tracks'][jf_indx-1], musicbrainz_track_data)
+            if merge == None:
+                jellyfin_musicbrain_trackid_update(jellyfin_server, item, musicbrainz_track_data[m_indx]['tracks'][jf_indx-1], musicbrainz_track_data)
+            else:
+                if m_indx == 0:
+                    first_track = item
+                jellyfin_musicbrain_trackid_update(jellyfin_server, item, musicbrainz_track_data[m_indx]['tracks'][jf_indx-1], musicbrainz_track_data, first_track)
         # Check of the item index is higher than the number of tracks in the disc
         if jf_indx >= int(disc_track_count):
             m_indx += 1
@@ -476,6 +559,13 @@ def process_album(album):
                 album_tracks+=get_album_tracks(jellyfin_server, jellyfin_api_key, album_id)
         else:
             album_tracks+=get_album_tracks(jellyfin_server, jellyfin_api_key, merge)
+
+        folders=jellyfin_get_album_folders(jellyfin_server, jellyfin_api_key, album)
+        for folder in folders:
+            jellyfin_set_folder_parent(jellyfin_server, album, folder)
+        print(f"Folders: {folders}")
+        print(f"Album: {album}")
+
         # Nest once because I am too lazy to fix test the unnest_items function in multi scenarios
         tracks=[]
         tracks.append(album_tracks)
@@ -488,6 +578,7 @@ def process_album(album):
 
     if sort_alpha:
         album_tracks.sort(key=lambda x: x["MediaSources"][0]["Path"])
+    
     #print(json.dumps(musicbrainz_track_data, indent=4))
     # Show information from both musicbrainz and jellyfin for comparison and confirmation
     if verify:
@@ -531,11 +622,12 @@ def process_album(album):
                     return False, album_artist_id[2], "ALREADYSET"
         # Check if album if Vinyl
         print(musicbrainz_track_data["media"][0]["format"])
-        if "Vinyl" in musicbrainz_track_data["media"][0]["format"]:
-            # Prompt and accept all input to continue
-            confirmation = input("This script does not work with Vinyl Albums, Are you sure Jellyfin detected album MBID correctly?:")
-            print("Aborting")
-            return False, album_artist_id[2], "VINYL"
+        if musicbrainz_track_data["media"][0]["format"] != None:
+            if "Vinyl" in musicbrainz_track_data["media"][0]["format"]:
+                # Prompt and accept all input to continue
+                confirmation = input("This script does not work with Vinyl Albums, Are you sure Jellyfin detected album MBID correctly?:")
+                print("Aborting")
+                return False, album_artist_id[2], "VINYL"
         if merge != None:
             print("Merge currently does not work as intended (Does not merge), it will however update all the albums with the correct metabrainz track ids.")
         confirmation = input("Confirm? [y/N]: ")
