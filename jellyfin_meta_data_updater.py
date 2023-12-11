@@ -2,20 +2,20 @@
 
 # Version 0.5
 
-# A script to update the metadata of a jellyfin server
+# Metabrainz track id feature:
 # The intention is to fix the issues with the musicbrainz plugin such as:
 #   - Missing musicbrainz track ids
 #   - Issues with multi disc albums that do not have a disc number
 #   - Issues with multi disc albums that have been split into multiple albums (In this case the script will merge the albums back into one album)
 #            - Merge is not implemented yet, this option will still update all the tracks of the split ablums with the correct musicbrainz track ids
-#            - The albums are split because the track files do not contain the disc number.
-#            - Originasing into ARTISTNAME/ALBUMNAME/DISCNUMBER/TRACKNUMBER TRACKNAME.EXTENSION used to work but does not work anymore
+#            - The albums are split because the track files do not contain the disc number or the folder structure is not ARTISTNAME/ALBUMNAME/DISCNUMBER/TRACKNUMBER TRACKNAME.EXTENSION
 #            - I tried changing the parent id of the tracks to the album id of the first disc but jellyfin just changes it back.
 #            - There is a "Folder" item type which parent id can be set to the album id (this is how jellyfin works when the disc number is set in the track files)
 #            - I have not found a way create a "Folder" item type using the jellyfin api
+#            - The best way to resolve this issue for existing albums is to move the album out of the Library, rescan the library, delete the album from the library, Format the album folder name to ARTISTNAME/ALBUMNAME/DISCNUMBER/TRACKNUMBER TRACKNAME.EXTENSION, move the album back into the library, rescan the library. If the folders are not called Disc 1, Disc 2, etc then jellyfin will not split the album into multiple albums. You can use symlink to keep the original folder structure without having to move the files(Symlink the folders, not the files).
 #
 #
-#
+# Shuffle large playlists:
 #   - Shuffle a whole playlist and create a new playlist from it (Jellyfin only shuffles 299 tracks at a time and cannot create a playlist from the shuffled tracks)
 
 # This script is mostly for those who do not want to make any changes to the media files themselves
@@ -291,7 +291,7 @@ def get_musicbrainz_track_ids(musicbrainz_server, musicbrainz_album_id):
     # Get the musicbrainz track ids from the musicbrainz server
     headers = {
         "Accept": "application/json",
-        "User-Agent": "jellyfin_meta_data_updater.py/0.1"
+        "User-Agent": "jellyfin_meta_data_updater.py/0.1 ( )"
     }
     url = f"{musicbrainz_server}/release/{musicbrainz_album_id}?inc=recordings"
     response = requests.get(url, headers=headers)
@@ -641,9 +641,8 @@ def process_album(album):
     return True, album_artist_id[2], "UPDATED"
 
 skipped_albums = []
-print("This works for single disc albums only")
-print("It relies on the MBID for the album being correctly set in jellyfin")
-print("Sometimes the MBID is not set correctly in jellyfin")
+print("This relies on the MBID for the album being correctly set in jellyfin")
+print("Sometimes the metabrainz plugin does not detect the MBID correctly, in this case you will have to manually set it in jellyfin.")
 print("By default the script will output a comparison of the album and tracks from jellyfin and musicbrainz for confirmation")
 print("Enter username and password for jellyfin server")
 tokens=prompt_for_username_password()
