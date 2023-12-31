@@ -27,13 +27,16 @@ import os
 import sys
 import getpass
 import getopt
+import time
 from random import shuffle
 
 # Settings, You will need to change these to match your setup
-jellyfin_server = "https://jellyfin.example.org"
+jellyfin_server = "https://jellyfin.example.com"
 jellyfin_api_key = "your api key"
-
-
+# Email address for musicbrainz api contact
+script_contact = "your email address"
+script_version = "0.5"
+script_name = "jellyfin_meta_data_updater.py"
 
 jellyfin_meta = "&SortBy=IndexNumber&mediaTypes=Audio"
 jellyfin_metas = [
@@ -51,7 +54,7 @@ musicbrainz_server = "https://musicbrainz.org/ws/2"
 
 # Make sure the script is run with the correct arguments
 if len(sys.argv) < 2:
-    print("Usage: jellyfin_meta_data_updater.py [<musicbrainz_album_id> | all] [--dry-run] [--use-musicbrainz-metadata] [--verify-off] [--skip-existing] [--merge <album_id>] [--sort-alpha] [--help] [shuffle=<new_playlist_name> [start=<start_track_number>]]")
+    print("Usage: jellyfin_meta_data_updater.py [<musicbrainz_album_id> | all] [--dry-run] [--use-musicbrainz-metadata] [--verify-off] [--skip-existing] [--merge <album_id>] [--sort-alpha] [--help] [shuffle=<new_playlist_name> [start=<start_track_number>]] [--genre [count=<vote_count>]]")
     sys.exit(1)
 
 # The first argument is the jellyfin album id
@@ -71,9 +74,12 @@ new_playlist_name=None
 # The track number to start the shuffle from, this is useful if you want to shuffle a playlist but start from a specific track number so that you can continue from where you left off
 start=None
 sort_alpha=False
+# Add genres to the album from musicbrainz
+update_genre=False
+count=1
 # Process optional arguments that can be in any order
 try:
-    opts, args = getopt.getopt(sys.argv[2:], "dbvsm:a", ["dry-run", "use-musicbrainz-metadata", "verify-off", "skip-existing", "merge=", "sort-alpha", "help", "shuffle=", "start="])
+    opts, args = getopt.getopt(sys.argv[2:], "dbvsm:a", ["dry-run", "use-musicbrainz-metadata", "verify-off", "skip-existing", "merge=", "sort-alpha", "help", "shuffle=", "start=", "genre", "count="])
 except getopt.GetoptError as err:
     print(err)
     sys.exit(1)
@@ -96,6 +102,13 @@ for opt, arg in opts:
             sys.exit(1)
     elif opt == "--help":
         help()
+    elif opt == "--genre":
+        update_genre=True
+    elif opt == "--count":
+        count=arg
+        if count == None:
+            print("Error: You must specify a vote count")
+            sys.exit(1)
     elif opt == "--shuffle":
         new_playlist_name = arg
         if new_playlist_name == None:
@@ -107,7 +120,7 @@ for opt, arg in opts:
             print("Error: You must specify a start track number")
             sys.exit(1)
     else:
-        print("Usage: jellyfin_meta_data_updater.py [<musicbrainz_album_id> | all] [--dry-run] [--use-musicbrainz-metadata] [--verify-off] [--skip-existing] [--merge <album_id>] [--sort-alpha] [--help] [shuffle=<new_playlist_id>]")
+        print("Usage: jellyfin_meta_data_updater.py [<musicbrainz_album_id> | all] [--dry-run] [--use-musicbrainz-metadata] [--verify-off] [--skip-existing] [--merge <album_id>] [--sort-alpha] [--help] [shuffle=<new_playlist_id> [start=<start_track_id>]] [--genre [count=<vote_count>]]")
         sys.exit(1)
 
 def help_doc():
@@ -118,6 +131,9 @@ def help_doc():
     print("If you encountered the bug where jellyfin splits a multi disc album into multiple albums then you can still add metabrain id to tracks with the --merge option to merge the albums back into one album, eg: jellyfin_meta_data_updater.py <musicbrainz_album_id 1st Album> --merge <album_id 2nd, album_id 3rd>")
     print("If you want to shuffle a playlist and create a new playlist from it then use the shuffle option, eg: jellyfin_meta_data_updater.py <playlist_id_to_shuffle> shuffle=<new_playlist_name>")
     print("If you want to shuffle a playlist and start from a specific track id(Use the dev inspector in browser) then use the start option, eg: jellyfin_meta_data_updater.py <playlist_id_to_shuffle> shuffle=<new_playlist_name> start=<start_track_id>")
+    print("You can update the genres for an album from musicbrainz with the --genre option, eg: jellyfin_meta_data_updater.py <musicbrainz_album_id> --genre")
+    print("You can specify a minimum vote count for the genres with the --count option, eg: jellyfin_meta_data_updater.py <musicbrainz_album_id> --genre --count=2")
+    print("\"all\" can be used with the --genre option to update all albums, eg: jellyfin_meta_data_updater.py all --genre")
     sys.exit(1)
 
 if jellyfin_album_id == "--help":
@@ -127,7 +143,7 @@ def get_playlist(jellyfin_server, jellyfin_playlist_id):
     # Placeholder
     # A function to get a playlist from the jellyfin server
     headers = {
-        "x-emby-authorization": f"MediaBrowser Client=\"jellyfin_meta_data_updater.py\", Device=\"jellyfin_meta_data_updater.py\", DeviceId=\"jellyfin_meta_data_updater.py\", Version=\"0.1\""
+        "x-emby-authorization": f"MediaBrowser Client=\"{script_name}\", Device=\"{script_name}\", DeviceId=\"{script_name}\", Version=\"{script_version}\"",
     }
     headers['x-mediabrowser-token'] = tokens[0]
     url = f"{jellyfin_server}/Playlists/{jellyfin_playlist_id}/Items?userId={tokens[1]}"
@@ -141,7 +157,7 @@ def save_playlist(playlist_name, playlist_items):
     # Placeholder
     # A function to save a playlist to the jellyfin server
     headers = {
-        "x-emby-authorization": f"MediaBrowser Client=\"jellyfin_meta_data_updater.py\", Device=\"jellyfin_meta_data_updater.py\", DeviceId=\"jellyfin_meta_data_updater.py\", Version=\"0.1\"",
+        "x-emby-authorization": f"MediaBrowser Client=\"{script_name}\", Device=\"{script_name}\", DeviceId=\"{script_name}\", Version=\"{script_version}\"",
         "Content-Type": "application/json"
     }
     headers['x-mediabrowser-token'] = tokens[0]
@@ -184,7 +200,7 @@ def shuffle_playlist(playlist_id):
 def jellyfin_auth_by_user(username, password):
     # Authenticate by user when elevated permissions are required
     headers = {
-        "x-emby-authorization": f"MediaBrowser Client=\"jellyfin_meta_data_updater.py\", Device=\"jellyfin_meta_data_updater.py\", DeviceId=\"jellyfin_meta_data_updater.py\", Version=\"0.1\"",
+        "x-emby-authorization": f"MediaBrowser Client=\"{script_name}\", Device=\"{script_name}\", DeviceId=\"{script_name}\", Version=\"{script_version}\"",
         "Content-Type": "application/json"
     }
     data = {
@@ -207,7 +223,7 @@ def get_albums(jellyfin_server):
     # Get all the albums from the jellyfin server
     # Requires authentication
     headers = {
-        "x-emby-authorization": f"MediaBrowser Client=\"jellyfin_meta_data_updater.py\", Device=\"jellyfin_meta_data_updater.py\", DeviceId=\"jellyfin_meta_data_updater.py\", Version=\"0.1\""
+        "x-emby-authorization": f"MediaBrowser Client=\"{script_name}\", Device=\"{script_name}\", DeviceId=\"{script_name}\", Version=\"{script_version}\"",
     }
     headers['x-mediabrowser-token'] = tokens[0]
     url = f"{jellyfin_server}/Items?userId={tokens[1]}&SortBy=SortName&IncludeItemTypes=MusicAlbum&filters=IsFolder&Recursive=true&Fields=ProviderIds"
@@ -236,6 +252,152 @@ def get_album_musicbrains_ids(jellyfin_server, jellyfin_api_key, jellyfin_album_
         return musicbrainz_album_id, release_id, response.json()["Items"][0]["Name"]
     else:
         return False, response.json()["Items"][0]["Name"]
+
+def jellyfin_album_genre_tagger(jellyfin_album_id, genres):
+    # Get current metadata
+    album = jellyfin_get_album(jellyfin_server, jellyfin_api_key, jellyfin_album_id)
+    # Requires authentication
+    headers = {
+        "x-emby-authorization": f"MediaBrowser Client=\"{script_name}\", Device=\"{script_name}\", DeviceId=\"{script_name}\", Version=\"{script_version}\"",
+        "Content-Type": "application/json"
+    }
+    headers['x-mediabrowser-token'] = tokens[0]
+    # Use all of the current metadata and update the genres
+    data = album["Items"][0]
+    data["Genres"] = genres
+    print(f"Data: {json.dumps(data)}")
+    url = f"{jellyfin_server}/Items/{jellyfin_album_id}"
+    response = requests.post(url, headers=headers, json=data)
+    if response.status_code != 204:
+        print(f"URL: {url}")
+        print(f"Error: {response.status_code} {response.reason}")
+        sys.exit(1)
+    print(f"Updated genres for album: {album['Items'][0]['Name']}")
+
+    return
+
+def jellyfin_artist_genre_tagger(jellyfin_artist_id, genres):
+    # Placeholder - A function to add genres to an artist
+    return
+
+def jellyfin_genre_update(jellyfin_album_id):
+    # Get release id
+    release_id = get_album_musicbrains_ids(jellyfin_server, jellyfin_api_key, jellyfin_album_id)[1]
+    # Get album name
+    album_name = get_album_musicbrains_ids(jellyfin_server, jellyfin_api_key, jellyfin_album_id)[2]
+    musicbrainz_genres = musicbrainz_get_release_genre(musicbrainz_server, release_id)
+    musicbrainz_artist = musicbrainz_artist_id(musicbrainz_server, release_id)
+    # Skip artist genre for multi artist albums
+    if not musicbrainz_multi_artist_album(musicbrainz_server, release_id):
+        musicbrainz_artist_genres = musicbrainz_get_artist_genre(musicbrainz_server, musicbrainz_artist)
+        musicbrainz_genres += musicbrainz_artist_genres
+    else:
+        print("Multi artist album, skipping artist genres")
+    # remove duplicates
+    musicbrainz_genres = list(dict.fromkeys(musicbrainz_genres))
+    # Skip if there are no genres
+    if len(musicbrainz_genres) == 0:
+        print("No genres found, skipping")
+        return False, album_name
+    # Get musicbrainz artist id
+    print (f"Musicbrainz genres: {musicbrainz_genres}")
+    # Update album genres
+    jellyfin_album_genre_tagger(jellyfin_album_id, musicbrainz_genres)
+    return True, album_name
+
+def musicbrainz_multi_artist_album(musicbrainz_server, musicbrainz_album_id):
+    # Get the musicbrainz album id from the musicbrainz server
+    headers = {
+        "Accept": "application/json",
+        "User-Agent": f"{script_name}/{script_version} ( {script_contact} )"
+    }
+    url = f"{musicbrainz_server}/release-group/{musicbrainz_album_id}?inc=artists"
+    response = requests.get(url, headers=headers)
+    if response.status_code != 200:
+        print(f"URL: {url}")
+        print(f"Error: {response.status_code} {response.reason}")
+        sys.exit(1)
+    if len(response.json()["artist-credit"]) > 1:
+        return True
+    if response.json()["artist-credit"][0]["artist"]["name"] == "Various Artists":
+        return True
+    else:
+        return False
+
+def musicbrainz_artist_id(musicbrainz_server, album_id):
+    # Get the musicbrainz artist id from the musicbrainz server
+    headers = {
+        "Accept": "application/json",
+        "User-Agent": f"{script_name}/{script_version} ( {script_contact} )"
+    }
+    url = f"{musicbrainz_server}/release-group/{album_id}?inc=artists"
+    response = requests.get(url, headers=headers)
+    if response.status_code != 200:
+        print(f"URL: {url}")
+        print(f"Error: {response.status_code} {response.reason}")
+        sys.exit(1)
+    return response.json()["artist-credit"][0]["artist"]["id"]
+
+def jellyfin_get_artist(jellyfin_server, jellyfin_api_key, jellyfin_artist_id):
+    # Get the artist from the jellyfin server
+    headers = {
+        "x-emby-token": jellyfin_api_key
+    }
+    url = f"{jellyfin_server}/Items?Ids={jellyfin_artist_id}"
+    response = requests.get(url, headers=headers)
+    if response.status_code != 200:
+        print(f"Error: {response.status_code} {response.reason}")
+        sys.exit(1)
+    return response.json()
+
+def jellyfin_get_album(jellyfin_server, jellyfin_api_key, jellyfin_album_id):
+    # Get the album from the jellyfin server
+    headers = {
+        "x-emby-token": jellyfin_api_key
+    }
+    url = f"{jellyfin_server}/Items?Ids={jellyfin_album_id}&fields=ProviderIds,Genres,Tags,Studios,ParentId,MediaSources"
+    response = requests.get(url, headers=headers)
+    if response.status_code != 200:
+        print(f"Error: {response.status_code} {response.reason}")
+        sys.exit(1)
+    return response.json()
+
+def musicbrainz_get_artist_genre(musicbrainz_server, musicbrainz_artist_id):
+    # Get the artist genres from the musicbrainz server
+    headers = {
+        "Accept": "application/json",
+        "User-Agent": f"{script_name}/{script_version} ( {script_contact} )"
+    }
+    url = f"{musicbrainz_server}/artist/{musicbrainz_artist_id}?inc=genres"
+    response = requests.get(url, headers=headers)
+    if response.status_code != 200:
+        print(f"Error: {response.status_code} {response.reason}")
+        sys.exit(1)
+    genres = []
+    for genre in response.json()["genres"]:
+        # Add only if count is greater than 1
+        if genre["count"] > int(count):
+            genres.append(genre["name"])
+    return genres
+
+def musicbrainz_get_release_genre(musicbrainz_server, musicbrainz_release_id):
+    # Get the release genres from the musicbrainz server
+    headers = {
+        "Accept": "application/json",
+        "User-Agent": f"{script_name}/{script_version} ( {script_contact} )"
+    }
+    url = f"{musicbrainz_server}/release-group/{musicbrainz_release_id}?inc=genres"
+    response = requests.get(url, headers=headers)
+    if response.status_code != 200:
+        print(f"Error: {response.status_code} {response.reason}")
+        print(f"URL: {url}")
+        sys.exit(1)
+    genres = []
+    for genre in response.json()["genres"]:
+        # Add only if count is greater than 1
+        if genre["count"] > int(count):
+            genres.append(genre["name"])
+    return genres
 
 def get_album_tracks(jellyfin_server, jellyfin_api_key, jellyfin_album_id):
     # Get all the tracks from the jellyfin server for the album
@@ -291,7 +453,7 @@ def get_musicbrainz_track_ids(musicbrainz_server, musicbrainz_album_id):
     # Get the musicbrainz track ids from the musicbrainz server
     headers = {
         "Accept": "application/json",
-        "User-Agent": "jellyfin_meta_data_updater.py/0.1 ( )"
+        "User-Agent": f"{script_name}/{script_version} ( {script_contact} )"
     }
     url = f"{musicbrainz_server}/release/{musicbrainz_album_id}?inc=recordings"
     response = requests.get(url, headers=headers)
@@ -305,7 +467,7 @@ def jellyfin_set_folder_parent(jellyfin_server, jellyfin_album_id, folder_id):
     # Set the parent id for the folder to the album id
     # Requires authentication
     headers = {
-        "x-emby-authorization": f"MediaBrowser Client=\"jellyfin_meta_data_updater.py\", Device=\"jellyfin_meta_data_updater.py\", DeviceId=\"jellyfin_meta_data_updater.py\", Version=\"0.1\"",
+        "x-emby-authorization": f"MediaBrowser Client=\"{script_name}\", Device=\"{script_name}\", DeviceId=\"{script_name}\", Version=\"{script_version}\"",
         "Content-Type": "application/json"
     }
     headers['x-mediabrowser-token'] = tokens[0]
@@ -349,7 +511,7 @@ def jellyfin_musicbrain_trackid_update(jellyfin_server, track_data, musicbrainz_
     # Update the jellyfin server with the musicbrainz track id
     # Requires authentication
     headers = {
-        "x-emby-authorization": f"MediaBrowser Client=\"jellyfin_meta_data_updater.py\", Device=\"jellyfin_meta_data_updater.py\", DeviceId=\"jellyfin_meta_data_updater.py\", Version=\"0.1\"",
+        "x-emby-authorization": f"MediaBrowser Client=\"{script_name}\", Device=\"{script_name}\", DeviceId=\"{script_name}\", Version=\"{script_version}\"",
         "Content-Type": "application/json"
     }
     headers['x-mediabrowser-token'] = tokens[0]
@@ -651,6 +813,12 @@ if sys.argv[1] != "all":
     if new_playlist_name != None:
         shuffle_playlist(jellyfin_album_id)
         exit()
+    if update_genre:
+        if not get_album_musicbrains_ids(jellyfin_server, jellyfin_api_key, jellyfin_album_id)[0]:
+            print("No musicbrainz album id found, skipping")
+            exit()
+        jellyfin_genre_update(jellyfin_album_id)
+        exit()
     process_album(jellyfin_album_id)
 elif sys.argv[1] == "all":
     if merge:
@@ -658,6 +826,22 @@ elif sys.argv[1] == "all":
         sys.exit(1)
     albums = get_albums(jellyfin_server)
     print("Processing all albums")
+    if update_genre:
+        for album in albums:
+            # Wait 1 second to prevent rate limiting
+            time.sleep(1)
+            if not get_album_musicbrains_ids(jellyfin_server, jellyfin_api_key, album["Id"])[0]:
+                print(f'No musicbrainz album id found for album: {album["Name"]}, {album["Id"]}, Skipping')
+                skipped_albums.append(album["Name"])
+                continue
+            current_album=jellyfin_genre_update(album["Id"])
+            print(f"Updated genres for album: {current_album[1]}")
+            if not current_album[0]:
+                skipped_albums.append(current_album[1])
+        print("Skipped albums:")
+        for album in skipped_albums:
+            print(album)
+        exit()
     for album in albums:
         current_album=process_album(album["Id"])
         if not current_album[0]:
