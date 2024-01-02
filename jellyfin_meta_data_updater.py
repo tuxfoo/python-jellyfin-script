@@ -738,6 +738,11 @@ def process_album(album):
     print(f"Getting musicbrainz track data for album: {album_artist_id[2]}, {album_artist_id[0]} from musicbrainz server: {musicbrainz_server}")
     musicbrainz_track_data=get_musicbrainz_track_ids(musicbrainz_server, album_artist_id[0])
 
+    for track in album_tracks:
+        if "02-01" in track["MediaSources"][0]["Path"]:
+            sort_alpha=True
+            break
+
     if sort_alpha:
         album_tracks.sort(key=lambda x: x["MediaSources"][0]["Path"])
     
@@ -745,6 +750,7 @@ def process_album(album):
     # Show information from both musicbrainz and jellyfin for comparison and confirmation
     if verify:
         if album_tracks == []:
+            print("Multi disc album detected, unnesting")
             nested_albums=get_multi_disc_children(jellyfin_server, jellyfin_api_key, album)
             for item in nested_albums:
                 if item["Type"] == 'Folder':

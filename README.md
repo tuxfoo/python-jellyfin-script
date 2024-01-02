@@ -2,7 +2,7 @@
 
 # Why?
 
-Jellyfin is one of my favourite open-source projects but it has some floors, so I use the API to to get aroung them.
+Jellyfin is one of my favourite open-source projects but it has some floors, so I use the API to to get around them.
 
 If I knew C# I would just fix them and make a PR.
 
@@ -10,7 +10,7 @@ If I knew C# I would just fix them and make a PR.
 
 Currently, it has features to add the MBID to each track in a album (Musicbrainz Track ID).
 
-For this to work each album must have a MBID assigned to it, Jellyfin does this part with the MusicBrainz plugin.
+For this to work each album must have a MBID assigned to it for the release and album, Jellyfin does this part automattically with the MusicBrainz plugin, although it sometimes gets them wrong.
 At the same time it will attempt to make sure each track is assigned to the correct disc as I do not want to make any changes to the original media files.
 
 # Shuffle playlist and create a new playlist from it
@@ -21,3 +21,7 @@ The problem with this is that each time you shuffle a large playlist it is very 
 
 This script can shuffle a wholelist and create a new one from it. 
 All you will have to do is remember the one of the last songs you listened to resume where you left off.
+
+# Update albums with Genre's from musicbrainz
+
+There is a option to update albums with the genre's from musicbrainz, by default a genre must have at least 2 votes. It will add genre's from both the album release group and the artist.
