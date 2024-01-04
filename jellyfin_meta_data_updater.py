@@ -738,6 +738,7 @@ def process_album(album):
     print(f"Getting musicbrainz track data for album: {album_artist_id[2]}, {album_artist_id[0]} from musicbrainz server: {musicbrainz_server}")
     musicbrainz_track_data=get_musicbrainz_track_ids(musicbrainz_server, album_artist_id[0])
 
+    global sort_alpha
     for track in album_tracks:
         if "02-01" in track["MediaSources"][0]["Path"]:
             sort_alpha=True
